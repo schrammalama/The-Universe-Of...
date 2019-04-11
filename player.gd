@@ -1,188 +1,228 @@
-
 extends KinematicBody
 
-# Member variables
-const ANIM_FLOOR = 0
-const ANIM_AIR_UP = 1
-const ANIM_AIR_DOWN = 2
+var cmd = {
+	forward_move 	= 0.0,
+	right_move 		= 0.0,
+	up_move 		= 0.0
+}
 
-const SHOOT_TIME = 1.5
-const SHOOT_SCALE = 2
+export var x_mouse_sensitivity = .1
 
-const CHAR_SCALE = Vector3(0.3, 0.3, 0.3)
+export var gravity = 20
 
-var facing_dir = Vector3(1, 0, 0)
-var movement_dir = Vector3()
+export var friction = 6.0
 
-var jumping = false
+export var move_speed = 15.0
+export var run_acceleration = 14.0
+export var run_deacceleration = 10.0
+export var air_acceleration = 2.0
+export var air_deacceleration = 2.0
+export var air_control = 0.3
+export var side_strafe_acceleration = 50.0
+export var side_strafe_speed = 1.0
+export var jump_speed = 8.0
+export var move_scale = 1.0
 
-var turn_speed = 40
-var keep_jump_inertia = true
-var air_idle_deaccel = false
-var accel = 19.0
-var deaccel = 14.0
-var sharp_turn_threshold = 140
+export var ground_snap_tolerance = 1
 
-var max_speed = 3.1
+var move_direction_norm = Vector3()
+var player_velocity = Vector3()
 
-var prev_shoot = false
+var up = Vector3(0,1,0)
 
-var linear_velocity=Vector3()
+var wish_jump = false;
 
-var shoot_blend = 0
-
-func adjust_facing(p_facing, p_target, p_step, p_adjust_rate, current_gn):
-	var n = p_target # Normal
-	var t = n.cross(current_gn).normalized()
-	 
-	var x = n.dot(p_facing)
-	var y = t.dot(p_facing)
-	
-	var ang = atan2(y,x)
-	
-	if (abs(ang) < 0.001): # Too small
-		return p_facing
-	
-	var s = sign(ang)
-	ang = ang*s
-	var turn = ang*p_adjust_rate*p_step
-	var a
-	if (ang < turn):
-		a = ang
-	else:
-		a = turn
-	ang = (ang - a)*s
-	
-	return (n*cos(ang) + t*sin(ang))*p_facing.length()
-
-
-func _physics_process(delta):
-	
-	var lv = linear_velocity
-	var g = Vector3(0,-9.8,0)
-
-#	var d = 1.0 - delta*state.get_total_density()
-#	if (d < 0):
-#		d = 0
-	lv += g*delta # Apply gravity
-	
-	var anim = ANIM_FLOOR
-	
-	var up = -g.normalized() # (up is against gravity)
-	var vv = up.dot(lv) # Vertical velocity
-	var hv = lv - up*vv # Horizontal velocity
-	
-	var hdir = hv.normalized() # Horizontal direction
-	var hspeed = hv.length() # Horizontal speed
-	
-
-	
-	var dir = Vector3() # Where does the player intend to walk to
-	var cam_xform = get_node("target/camera").get_global_transform()
-	
-	if (Input.is_action_pressed("move_forward")):
-		dir += -cam_xform.basis[2]
-	if (Input.is_action_pressed("move_backwards")):
-		dir += cam_xform.basis[2]
-	if (Input.is_action_pressed("move_left")):
-		dir += -cam_xform.basis[0]
-	if (Input.is_action_pressed("move_right")):
-		dir += cam_xform.basis[0]
-	
-	var jump_attempt = Input.is_action_pressed("jump")
-	var shoot_attempt = Input.is_action_pressed("shoot")
-	
-	var target_dir = (dir - up*dir.dot(up)).normalized()
-	
-	if (is_on_floor()):
-		var sharp_turn = hspeed > 0.1 and rad2deg(acos(target_dir.dot(hdir))) > sharp_turn_threshold
-		
-		if (dir.length() > 0.1 and !sharp_turn):
-			if (hspeed > 0.001):
-				#linear_dir = linear_h_velocity/linear_vel
-				#if (linear_vel > brake_velocity_limit and linear_dir.dot(ctarget_dir) < -cos(Math::deg2rad(brake_angular_limit)))
-				#	brake = true
-				#else
-				hdir = adjust_facing(hdir, target_dir, delta, 1.0/hspeed*turn_speed, up)
-				facing_dir = hdir
-			else:
-				hdir = target_dir
-			
-			if (hspeed < max_speed):
-				hspeed += accel*delta
-		else:
-			hspeed -= deaccel*delta
-			if (hspeed < 0):
-				hspeed = 0
-		
-		hv = hdir*hspeed
-		
-		var mesh_xform = get_node("Armature").get_transform()
-		var facing_mesh = -mesh_xform.basis[0].normalized()
-		facing_mesh = (facing_mesh - up*facing_mesh.dot(up)).normalized()
-		
-		if (hspeed>0):
-			facing_mesh = adjust_facing(facing_mesh, target_dir, delta, 1.0/hspeed*turn_speed, up)
-		var m3 = Basis(-facing_mesh, up, -facing_mesh.cross(up).normalized()).scaled(CHAR_SCALE)
-		
-		get_node("Armature").set_transform(Transform(m3, mesh_xform.origin))
-		
-		if (not jumping and jump_attempt):
-			vv = 7.0
-			jumping = true
-			get_node("sound_jump").play()
-	else:
-		if (vv > 0):
-			anim = ANIM_AIR_UP
-		else:
-			anim = ANIM_AIR_DOWN
-		
-		var hs
-		if (dir.length() > 0.1):
-			hv += target_dir*(accel*0.2)*delta
-			if (hv.length() > max_speed):
-				hv = hv.normalized()*max_speed
-		else:
-			if (air_idle_deaccel):
-				hspeed = hspeed - (deaccel*0.2)*delta
-				if (hspeed < 0):
-					hspeed = 0
-				
-				hv = hdir*hspeed
-	
-	if (jumping and vv < 0):
-		jumping = false
-	
-	lv = hv + up*vv
-	
-	if (is_on_floor()):
-		movement_dir = lv
-		
-	linear_velocity = move_and_slide(lv,-g.normalized())
-	
-	if (shoot_blend > 0):
-		shoot_blend -= delta*SHOOT_SCALE
-		if (shoot_blend < 0):
-			shoot_blend = 0
-	
-	if (shoot_attempt and not prev_shoot):
-		shoot_blend = SHOOT_TIME
-		var bullet = preload("res://bullet.scn").instance()
-		bullet.set_transform(get_node("Armature/bullet").get_global_transform().orthonormalized())
-		get_parent().add_child(bullet)
-		bullet.set_linear_velocity(get_node("Armature/bullet").get_global_transform().basis[2].normalized()*20)
-		bullet.add_collision_exception_with(self) # Add it to bullet
-		get_node("sound_shoot").play()
-	
-	prev_shoot = shoot_attempt
-	
-	if (is_on_floor()):
-		get_node("AnimationTreePlayer").blend2_node_set_amount("walk", hspeed/max_speed)
-	
-	get_node("AnimationTreePlayer").transition_node_set_current("state", anim)
-	get_node("AnimationTreePlayer").blend2_node_set_amount("gun", min(shoot_blend, 1.0))
-#	state.set_angular_velocity(Vector3())
-
+var touching_ground = false;
 
 func _ready():
-	get_node("AnimationTreePlayer").set_active(true)
+	set_physics_process(true)
+
+func _physics_process(delta):
+	queue_jump()
+	if touching_ground:
+		ground_move(delta)
+	else:
+		air_move(delta)
+	
+	player_velocity = move_and_slide(player_velocity, up)
+	touching_ground = is_on_floor()
+
+func snap_to_ground(from):
+	#var from = global_transform.origin
+	var to = from + -global_transform.basis.y * ground_snap_tolerance
+	var space_state = get_world().get_direct_space_state()
+	
+	var result = space_state.intersect_ray(from, to)
+	if !result.empty():
+		global_transform.origin.y = result.position.y
+
+func set_movement_dir():
+	cmd.forward_move = 0.0
+	cmd.right_move = 0.0
+	cmd.forward_move += int(Input.is_action_pressed("move_forward"))
+	cmd.forward_move -= int(Input.is_action_pressed("move_backward"))
+	cmd.right_move += int(Input.is_action_pressed("move_right"))
+	cmd.right_move -= int(Input.is_action_pressed("move_left"))
+
+func queue_jump():
+	if Input.is_action_just_pressed("jump") and !wish_jump:
+		wish_jump = true
+	if Input.is_action_just_released("jump"):
+		wish_jump = false
+
+func air_move(delta):
+	var wishdir = Vector3()
+	var wishvel = air_acceleration
+	var accel = 0.0
+	
+	var scale = cmd_scale()
+	
+	set_movement_dir()
+	
+	wishdir += transform.basis.x * cmd.right_move
+	wishdir -= transform.basis.z * cmd.forward_move
+	
+	var wishspeed = wishdir.length()
+	wishspeed *= move_speed
+	
+	wishdir = wishdir.normalized()
+	move_direction_norm = wishdir
+	
+	var wishspeed2 = wishspeed
+	if player_velocity.dot(wishdir) < 0:
+		accel = air_deacceleration
+	else:
+		accel = air_acceleration
+	
+	if(cmd.forward_move == 0) and (cmd.right_move != 0):
+		if wishspeed > side_strafe_speed:
+			wishspeed = side_strafe_speed
+		accel = side_strafe_acceleration
+		
+	accelerate(wishdir, wishspeed, accel, delta)
+	if air_control > 0:
+		air_control(wishdir, wishspeed2, delta)
+		
+	player_velocity.y -= gravity * delta
+
+func air_control(wishdir, wishspeed, delta):
+	var zspeed = 0.0
+	var speed = 0.0
+	var dot = 0.0
+	var k = 0.0
+	
+	if (abs(cmd.forward_move) < 0.001) or (abs(wishspeed) < 0.001):
+		return
+	zspeed = player_velocity.y
+	player_velocity.y = 0
+	
+	speed = player_velocity.length()
+	player_velocity = player_velocity.normalized()
+	
+	dot = player_velocity.dot(wishdir)
+	k = 32.0
+	k *= air_control * dot * dot * delta
+	
+	if dot > 0:
+		player_velocity.x = player_velocity.x * speed + wishdir.x * k
+		player_velocity.y = player_velocity.y * speed + wishdir.y * k 
+		player_velocity.z = player_velocity.z * speed + wishdir.z * k 
+		
+		player_velocity = player_velocity.normalized()
+		move_direction_norm = player_velocity
+	
+	player_velocity.x *= speed 
+	player_velocity.y = zspeed 
+	player_velocity.z *= speed 
+
+func ground_move(delta):
+	var wishdir = Vector3()
+	
+	if (!wish_jump):
+		apply_friction(1.0, delta)
+	else:
+		apply_friction(0, delta)
+	
+	set_movement_dir()
+	
+	var scale = cmd_scale()
+	
+	wishdir += transform.basis.x * cmd.right_move
+	wishdir -= transform.basis.z * cmd.forward_move
+	
+	wishdir = wishdir.normalized()
+	move_direction_norm = wishdir
+	
+	var wishspeed = wishdir.length()
+	wishspeed *= move_speed
+	
+	accelerate(wishdir, wishspeed, run_acceleration, delta)
+	
+	player_velocity.y = 0.0
+	
+	if wish_jump:
+		player_velocity.y = jump_speed
+		wish_jump = false
+
+func apply_friction(t, delta):
+	var vec = player_velocity
+	var speed = 0.0
+	var newspeed = 0.0
+	var control = 0.0
+	var drop = 0.0
+	
+	vec.y = 0.0
+	speed = vec.length()
+	drop = 0.0
+	
+	if touching_ground:
+		if speed < run_deacceleration:
+			control = run_deacceleration
+		else:
+			control = speed
+		drop = control * friction * delta * t
+	
+	newspeed = speed - drop;
+	if newspeed < 0:
+		newspeed = 0
+	if speed > 0:
+		newspeed /= speed
+	
+	player_velocity.x *= newspeed
+	player_velocity.z *= newspeed
+
+func accelerate(wishdir, wishspeed, accel, delta):
+	var addspeed = 0.0
+	var accelspeed = 0.0
+	var currentspeed = 0.0
+	
+	currentspeed = player_velocity.dot(wishdir)
+	addspeed = wishspeed - currentspeed
+	if addspeed <=0:
+		return
+	accelspeed = accel * delta * wishspeed
+	if accelspeed > addspeed:
+		accelspeed = addspeed
+	
+	player_velocity.x += accelspeed * wishdir.x
+	player_velocity.z += accelspeed * wishdir.z
+
+func cmd_scale():
+	var var_max = 0
+	var total = 0.0
+	var scale = 0.0
+	
+	var_max = int(abs(cmd.forward_move))
+	if(abs(cmd.right_move) > var_max):
+		var_max = int(abs(cmd.right_move))
+	if var_max <= 0:
+		return 0
+	
+	total = sqrt(cmd.forward_move * cmd.forward_move + cmd.right_move * cmd.right_move)
+	scale = move_speed * var_max / (move_scale * total)
+	
+	return scale
+
+func _input(ev):
+	if (ev is InputEventMouseMotion):
+		rotate_y(-deg2rad(ev.relative.x) * x_mouse_sensitivity)
